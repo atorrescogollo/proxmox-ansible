@@ -14,8 +14,8 @@
     - ( ram_mb | int ) % 512 == 0
     - disk_gb is defined
     - disk_gb | int > 0
-    - vm_vlan is defined
-    - vm_vlan | int > 0
+    - vlan is defined
+    - vlan | int > 0
     - template_name is defined
   tags:
   - always
