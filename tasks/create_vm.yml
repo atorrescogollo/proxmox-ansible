@@ -52,7 +52,7 @@
       balloon: "{{ram_mb//2 if ram_mb > 512 else omit}}"
   register: compute_resources
   tags:
-  - network_config
+  - compute_config
 
 # https://pve.proxmox.com/pve-docs/api-viewer/#/nodes/{node}/qemu/{vmid}/resize
 # https://stackoverflow.com/a/55552593
