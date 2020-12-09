@@ -1,0 +1,98 @@
+- name: Assert parameters
+  assert:
+    that:
+    - vm_name is defined
+    - "'.' not in vm_name"
+    - vm_name | length > 5
+    - vm_name | length < 15
+    - cpu_sockets is defined
+    - cpu_sockets | int > 0
+    - cpu_cores is defined
+    - cpu_cores | int > 0
+    - ram_mb is defined
+    - ram_mb | int > 0
+    - ( ram_mb | int ) % 512 == 0
+    - disk_gb is defined
+    - disk_gb | int > 0
+    - vm_vlan is defined
+    - vm_vlan | int > 0
+    - template_name is defined
+  tags:
+  - always
+
+- name: "Clone VM from {{template_name}}"
+  proxmox_kvm:
+    api_user: "{{proxmox_user}}"
+    api_password: "{{proxmox_pass}}"
+    api_host: "{{proxmox_host}}"
+    node: "{{proxmox_node}}"
+    newid: "{{vm_id}}"
+    name: "{{vm_name}}"
+    clone: "{{template_name}}"
+    storage: "{{datastore}}"
+    format: qcow2
+    timeout: 500
+  register: clonation
+
+- fail:
+    msg: "VM with ID={{vm_id}} already exists"
+  when: not clonation.changed
+
+- name: Configure CPU and RAM
+  uri:
+    validate_certs: no
+    url: "https://{{ proxmox_host }}/api2/json/nodes/{{proxmox_node}}/qemu/{{vm_id}}/config"
+    method: PUT
+    headers: "{{proxmox_auth_headers}}"
+    body_format: form-urlencoded
+    body:
+      sockets: "{{cpu_sockets}}"
+      cores: "{{cpu_cores}}"
+      memory: "{{ram_mb}}"
+      balloon: "{{ram_mb//2 if ram_mb > 512 else omit}}"
+  register: compute_resources
+  tags:
+  - network_config
+
+# https://pve.proxmox.com/pve-docs/api-viewer/#/nodes/{node}/qemu/{vmid}/resize
+# https://stackoverflow.com/a/55552593
+- name: Resize VM disk
+  uri:
+    validate_certs: no
+    url: "https://{{ proxmox_host }}/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_id }}/resize"
+    method: PUT
+    headers: "{{proxmox_auth_headers}}"
+    body_format: form-urlencoded
+    body:
+      disk: scsi0
+      size: "{{ disk_gb }}G"
+  register: storage
+  tags:
+  - storage_config
+
+# https://pve.proxmox.com/pve-docs/api-viewer/#/nodes/{node}/network/{iface}
+- block:
+  # Preserve MAC addr - https://forum.proxmox.com/threads/proxmox-api-change-vm-network-configuration.68764/
+  - name: Get network interface info
+    uri:
+      validate_certs: no
+      url: "https://{{ proxmox_host }}/api2/json/nodes/{{proxmox_node}}/qemu/{{vm_id}}/config"
+      method: GET
+      headers: "{{proxmox_auth_headers}}"
+    register: network
+  - set_fact:
+      network_mac_addr: "{{network.json.data.net0 | regex_replace('^.*virtio=([A-Z0-9:]+).*$', '\\1') | default(omit) }}"
+
+  # Set VLAN
+  - name: Configure network interface
+    uri:
+      validate_certs: no
+      url: "https://{{ proxmox_host }}/api2/json/nodes/{{proxmox_node}}/qemu/{{vm_id}}/config"
+      method: PUT
+      headers: "{{proxmox_auth_headers}}"
+      body_format: form-urlencoded
+      body:
+        net0: "model=virtio{{ (',macaddr=' + network_mac_addr) if network_mac_addr is defined else ''}},bridge={{network_bridge}},firewall=1,tag={{vlan}}"
+    register: network
+  tags:
+  - network_config

@@ -1,0 +1,31 @@
+- name: Ensure valid action
+  assert:
+    that:
+      - action is defined
+      - action in role_actions
+  tags:
+  - always
+
+- name: Authenticate to Proxmox API
+  block:
+  - uri:
+      validate_certs: no
+      url: "https://{{ proxmox_host }}/api2/json/access/ticket"
+      method: POST
+      body_format: form-urlencoded
+      body:
+        username: "{{ proxmox_user }}"
+        password: "{{ proxmox_pass }}"
+    register: proxmox_auth
+  - set_fact:
+      proxmox_auth_headers:
+        Cookie: "PVEAuthCookie={{ proxmox_auth.json.data.ticket }}"
+        CSRFPreventionToken: "{{ proxmox_auth.json.data.CSRFPreventionToken }}"
+  tags:
+  - always
+
+- name: "Call {{action}} action"
+  include_tasks:
+    file: "{{action}}.yml"
+  tags:
+  - always
