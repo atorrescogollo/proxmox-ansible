@@ -38,20 +38,18 @@
     msg: "VM with ID={{vm_id}} already exists"
   when: not clonation.changed
 
-- name: Configure CPU and RAM
-  uri:
-    validate_certs: no
-    url: "https://{{ proxmox_host }}/api2/json/nodes/{{proxmox_node}}/qemu/{{vm_id}}/config"
-    method: PUT
-    headers: "{{proxmox_auth_headers}}"
-    body_format: form-urlencoded
-    body:
-      sockets: "{{cpu_sockets}}"
-      cores: "{{cpu_cores}}"
-      memory: "{{ram_mb}}"
-      balloon: "{{ram_mb//2 if ram_mb > 512 else omit}}"
-  register: compute_resources
+- block:
+  - name: Configure CPU and RAM
+    set_fact:
+      cpu_ram_vm_config:
+        sockets: "{{cpu_sockets}}"
+        cores: "{{cpu_cores}}"
+        memory: "{{ram_mb}}"
+        balloon: "{{ram_mb//2 if ram_mb > 512 else omit}}"
+  - set_fact:
+      vm_config: "{{ vm_config | default({}) | combine(cpu_ram_vm_config) }}"
   tags:
+  - config
   - compute_config
 
 # https://pve.proxmox.com/pve-docs/api-viewer/#/nodes/{node}/qemu/{vmid}/resize
@@ -68,10 +66,11 @@
       size: "{{ disk_gb }}G"
   register: storage
   tags:
+  - config
   - storage_config
 
-# https://pve.proxmox.com/pve-docs/api-viewer/#/nodes/{node}/network/{iface}
 - block:
+  # https://pve.proxmox.com/pve-docs/api-viewer/index.html#/nodes/{node}/qemu/{vmid}/config
   # Preserve MAC addr - https://forum.proxmox.com/threads/proxmox-api-change-vm-network-configuration.68764/
   - name: Get network interface info
     uri:
@@ -80,19 +79,33 @@
       method: GET
       headers: "{{proxmox_auth_headers}}"
     register: network
-  - set_fact:
+  - name: Set net0 config
+    set_fact:
       network_mac_addr: "{{network.json.data.net0 | regex_replace('^.*virtio=([A-Z0-9:]+).*$', '\\1') | default(omit) }}"
-
-  # Set VLAN
-  - name: Configure network interface
-    uri:
-      validate_certs: no
-      url: "https://{{ proxmox_host }}/api2/json/nodes/{{proxmox_node}}/qemu/{{vm_id}}/config"
-      method: PUT
-      headers: "{{proxmox_auth_headers}}"
-      body_format: form-urlencoded
-      body:
-        net0: "model=virtio{{ (',macaddr=' + network_mac_addr) if network_mac_addr is defined else ''}},bridge={{network_bridge}},firewall=1,tag={{vlan}}"
-    register: network
+      net0: "model=virtio{{ (',macaddr=' + network_mac_addr) if network_mac_addr is defined else ''}},bridge={{network_bridge}},firewall=1,tag={{vlan}}"
+  - set_fact:
+      vm_config: "{{ vm_config | default({}) | combine({'net0': net0}) }}"
   tags:
+  - config
+  - network_config
+
+- name: Enable Qemu Agent
+  set_fact:
+    vm_config: "{{ vm_config | default({}) | combine({'agent': 'enabled=1'}) }}"
+  tags:
+  - config
+  - network_config
+
+# https://pve.proxmox.com/pve-docs/api-viewer/index.html#/nodes/{node}/qemu/{vmid}/config
+- name: Set config
+  uri:
+    validate_certs: no
+    url: "https://{{ proxmox_host }}/api2/json/nodes/{{proxmox_node}}/qemu/{{vm_id}}/config"
+    method: PUT
+    headers: "{{proxmox_auth_headers}}"
+    body_format: form-urlencoded
+    body: "{{vm_config}}"
+  when: vm_config is defined
+  tags:
+  - config
   - network_config
