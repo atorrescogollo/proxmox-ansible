@@ -20,7 +20,43 @@
   tags:
   - always
 
-- name: "Clone VM from {{template_name}}"
+- block:
+  - name: Retrieve all VMs info
+    uri:
+      validate_certs: no
+      url: "https://{{ proxmox_host }}/api2/json/cluster/resources?type=vm"
+      method: GET
+      headers: "{{proxmox_auth_headers}}"
+    register: cluster_resources
+
+  - name: Ensure that specified vm_name is available
+    fail:
+      msg: "{{vm_name}} already exists"
+    when: vm_name in (cluster_resources.json.data | map(attribute='name') | list)
+
+  - name: Ensure that specified vm_id is available
+    fail:
+      msg: "VM with ID={{vm_id}} already exists"
+    when: vm_id is defined and vm_id in (cluster_resources.json.data | map(attribute='vmid') | list)
+
+  # Format: VMID = "<VLANID%3chars><VM_INDEX%3chars>"
+  - name: Use next vm_id available
+    set_fact:
+      vm_id: "
+        {%- set all_vmid = cluster_resources.json.data | map(attribute='vmid') | list -%}
+        {%- set tmp = [] -%}
+        {%- for vmid in all_vmid -%}
+          {%- if vmid |string| regex_search('^'+vlan|string) -%}
+            {{ tmp.append(vmid%1000) }}
+          {%- endif -%}
+        {%- endfor -%}
+        {%- set next_id = range(1, 1000) | list | difference(tmp) | sort | first -%}
+        {{ vlan|string+'%03d' | format(next_id | int) }}"
+    when: vm_id is not defined
+  tags:
+  - always
+
+- name: "Create VM from {{template_name}}: {{vm_name}} (vm_id={{vm_id}})"
   proxmox_kvm:
     api_user: "{{proxmox_user}}"
     api_password: "{{proxmox_pass}}"
@@ -34,12 +70,8 @@
     timeout: 500
   register: clonation
 
-- fail:
-    msg: "VM with ID={{vm_id}} already exists"
-  when: not clonation.changed
-
 - block:
-  - name: Configure CPU and RAM
+  - name: "Prepare config: Configure CPU and RAM"
     set_fact:
       cpu_ram_vm_config:
         sockets: "{{cpu_sockets}}"
@@ -79,7 +111,7 @@
       method: GET
       headers: "{{proxmox_auth_headers}}"
     register: network
-  - name: Set net0 config
+  - name: "Prepare config: Set net0 config"
     set_fact:
       network_mac_addr: "{{network.json.data.net0 | regex_replace('^.*virtio=([A-Z0-9:]+).*$', '\\1') | default(omit) }}"
       net0: "model=virtio{{ (',macaddr=' + network_mac_addr) if network_mac_addr is defined else ''}},bridge={{network_bridge}},firewall=1,tag={{vlan}}"
@@ -89,15 +121,15 @@
   - config
   - network_config
 
-- name: Enable Qemu Agent
+- name: "Prepare config: Enable Qemu Agent"
   set_fact:
     vm_config: "{{ vm_config | default({}) | combine({'agent': 'enabled=1'}) }}"
   tags:
   - config
-  - network_config
+  - qemuagent_config
 
 # https://pve.proxmox.com/pve-docs/api-viewer/index.html#/nodes/{node}/qemu/{vmid}/config
-- name: Set config
+- name: Configure VM
   uri:
     validate_certs: no
     url: "https://{{ proxmox_host }}/api2/json/nodes/{{proxmox_node}}/qemu/{{vm_id}}/config"
@@ -108,4 +140,45 @@
   when: vm_config is defined
   tags:
   - config
+  - compute_config
   - network_config
+  - qemuagent_config
+
+- block:
+  # https://pve.proxmox.com/pve-docs/api-viewer/index.html#/nodes/{node}/qemu/{vmid}/status/start
+  - name: Start VM
+    uri:
+      validate_certs: no
+      url: "https://{{ proxmox_host }}/api2/json/nodes/{{proxmox_node}}/qemu/{{vm_id}}/status/start"
+      method: POST
+      headers: "{{proxmox_auth_headers}}"
+      body_format: form-urlencoded
+  - name: Get VM info
+    uri:
+      validate_certs: no
+      url: "https://{{ proxmox_host }}/api2/json/nodes/{{proxmox_node}}/qemu/{{vm_id}}/agent/network-get-interfaces"
+      method: GET
+      headers: "{{proxmox_auth_headers}}"
+      body_format: form-urlencoded
+    register: info
+    until: '"QEMU guest agent is not running" not in info.msg'
+    retries: 10
+    delay: 6
+  - name: Retrieve IPv4 address
+    set_fact:
+      vm_ipv4: "{{ info.json.data.result | map(attribute='ip-addresses') | flatten | selectattr('ip-address-type', 'equalto', 'ipv4') | map(attribute='ip-address') | reject('match','127.0.0.1') | first }}"
+    until: vm_ipv4 is defined
+    retries: 5
+    delay: 6
+  tags:
+  - start_vm
+
+- name: Generate properties file
+  copy:
+    content: |
+      vm_id={{vm_id}}
+      vm_name={{vm_name}}
+      vm_ipv4={{vm_ipv4}}
+      network_mac_addr={{network_mac_addr | default("null")}}
+    dest: "{{output_properties_file}}"
+  when: output_properties_file is defined
