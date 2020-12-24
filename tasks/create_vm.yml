@@ -17,9 +17,11 @@
     - vlan is defined
     - vlan | int > 0
     - template_name is defined
+    - proxmox_node is defined
   tags:
   - always
 
+# https://pve.proxmox.com/pve-docs/api-viewer/index.html#/cluster/resources
 - block:
   - name: Retrieve all VMs info
     uri:

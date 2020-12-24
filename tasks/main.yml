@@ -1,8 +1,11 @@
 - name: Ensure valid action
   assert:
     that:
-      - action is defined
-      - action in role_actions
+    - action is defined
+    - action in role_actions
+    - proxmox_host is defined
+    - proxmox_user is defined
+    - proxmox_pass is defined
   tags:
   - always
 

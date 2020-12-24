@@ -1,2 +1,3 @@
 role_actions:
   - create_vm
+  - delete_vm

@@ -1,0 +1,54 @@
+- name: Assert parameters
+  assert:
+    that:
+    - vm_name is defined
+  tags:
+  - always
+
+# https://pve.proxmox.com/pve-docs/api-viewer/index.html#/cluster/resources
+- block:
+  - name: Retrieve all VMs info
+    uri:
+      validate_certs: no
+      url: "https://{{ proxmox_host }}/api2/json/cluster/resources?type=vm"
+      method: GET
+      headers: "{{proxmox_auth_headers}}"
+    register: cluster_resources
+  - name: Retrieve vm_facts
+    set_fact:
+      vm_facts: "{{ cluster_resources.json.data | json_query(_query_get_vmid) | first }}"
+    vars:
+      _query_get_vmid: "[?name=='{{vm_name}}']"
+
+- block:
+  # https://pve.proxmox.com/pve-docs/api-viewer/index.html#/nodes/{node}/qemu/{vmid}/status/stop
+  - name: "Force stop VM {{vm_name}} (ID={{vm_facts.vmid}})"
+    uri:
+      validate_certs: no
+      url: "https://{{ proxmox_host }}/api2/json/nodes/{{vm_facts.node}}/qemu/{{vm_facts.vmid}}/status/stop"
+      method: POST
+      headers: "{{proxmox_auth_headers}}"
+      body_format: form-urlencoded
+    register: shutdown
+  # https://pve.proxmox.com/pve-docs/api-viewer/index.html#/nodes/{node}/qemu/{vmid}/status/current
+  - name: "Wait until VM is stopped before deletion"
+    uri:
+      validate_certs: no
+      url: "https://{{ proxmox_host }}/api2/json/nodes/{{vm_facts.node}}/qemu/{{vm_facts.vmid}}/status/current"
+      method: GET
+      headers: "{{proxmox_auth_headers}}"
+    register: vm_current_status
+    until: "vm_current_status.json.data.status == 'stopped'"
+    retries: 10
+    delay: 3
+  when: "vm_facts.status == 'running'"
+
+- name: "Delete VM {{vm_name}} (ID={{vm_facts.vmid}})"
+  proxmox_kvm:
+    api_user: "{{proxmox_user}}"
+    api_password: "{{proxmox_pass}}"
+    api_host: "{{proxmox_host}}"
+    vmid: "{{vm_facts.vmid}}"
+    state: absent
+    force: yes
+  register: deletion
