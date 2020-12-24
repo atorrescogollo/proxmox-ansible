@@ -166,7 +166,7 @@
     delay: 6
   - name: Retrieve IPv4 address
     set_fact:
-      vm_ipv4: "{{ info.json.data.result | map(attribute='ip-addresses') | flatten | selectattr('ip-address-type', 'equalto', 'ipv4') | map(attribute='ip-address') | reject('match','127.0.0.1') | first }}"
+      vm_ipv4: "{{ info.json.data.result | map(attribute='ip-addresses') | flatten | selectattr('ip-address-type', 'equalto', 'ipv4') | map(attribute='ip-address') | reject('match','127.0.0.1') | first | default(omit) }}"
     until: vm_ipv4 is defined
     retries: 5
     delay: 6
