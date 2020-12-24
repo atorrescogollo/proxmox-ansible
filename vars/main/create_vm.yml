@@ -1,0 +1,2 @@
+_query_no_loopback_addresses: "[?\"hardware-address\"!='00:00:00:00:00:00'].\"ip-addresses\"[]"
+_query_ipv4_addresses: "[?\"ip-address-type\"=='ipv4'].\"ip-address\""
