@@ -52,7 +52,9 @@
             {{ tmp.append(vmid%1000) }}
           {%- endif -%}
         {%- endfor -%}
-        {%- set next_id = range(1, 1000) | list | difference(tmp) | sort | first -%}
+        {%- set next_ids_available = range(1, 1000) | list | difference(tmp) | sort -%}
+        {%- set host_index_offset = play_hosts.index(inventory_hostname) -%}
+        {%- set next_id = next_ids_available[host_index_offset] -%}
         {{ vlan|string+'%03d' | format(next_id | int) }}"
     when: vm_id is not defined
   tags:
