@@ -3,7 +3,6 @@
     that:
     - vm_name is defined
     - "'.' not in vm_name"
-    - vm_name | length > 5
     - vm_name | length < 15
     - cpu_sockets is defined
     - cpu_sockets | int > 0
