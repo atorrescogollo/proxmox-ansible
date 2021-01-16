@@ -1,3 +1,7 @@
+- name: Include vault vars
+  include_vars: defaults/vault.yml
+  failed_when: no
+
 - name: Ensure valid action
   assert:
     that:
