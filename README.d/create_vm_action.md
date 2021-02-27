@@ -12,6 +12,7 @@ Using this action, you will be able to set the following variables:
 - `cpu_sockets`: CPU sockets for the VM. Default: 1
 - `cpu_cores`: CPU cores for the VM. Default: 1
 - `ram_mb`: RAM in megabytes for the VM. Default: 1024
+- `ballooning`: Use RAM balloning. Balloon limit is `ram_mb/2` when `ram_mb>512M`. For `ram_mb<=512M`, ballooning is not allowed. Default: `true`.
 - `datastore`: Backend storage for the VM main disk.
 - `disk_gb`: Main disk size in gigabytes for the VM. Default: 16
 - `network_bridge`: Dot1Q tag (VLAN id) for the VM. Default: 'vmbr1'

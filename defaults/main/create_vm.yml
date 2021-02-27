@@ -4,3 +4,4 @@ cpu_cores: 1
 ram_mb: 1024
 disk_gb: 16
 template_name: TEMPLATE-UBUNTU-SERVER-20-04
+ballooning: true

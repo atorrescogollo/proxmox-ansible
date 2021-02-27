@@ -80,7 +80,7 @@
         sockets: "{{cpu_sockets}}"
         cores: "{{cpu_cores}}"
         memory: "{{ram_mb}}"
-        balloon: "{{ram_mb//2 if ram_mb > 512 else omit}}"
+        balloon: "{{ram_mb//2 if ballooning and ram_mb > 512 else omit}}"
   - set_fact:
       vm_config: "{{ vm_config | default({}) | combine(cpu_ram_vm_config) }}"
   tags:
